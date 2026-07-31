@@ -1,0 +1,15 @@
+# Core Numerical & Data Processing
+numpy>=1.21.0
+pandas>=1.3.0
+
+# Natural Language Processing & Corpus Parsing
+nltk>=3.6.0
+conllu>=4.4.0
+
+# Visualization & LaTeX Export
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# Interactive Notebook
+jupyter>=1.0.0
+notebook>=6.4.0
