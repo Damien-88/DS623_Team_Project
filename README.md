@@ -19,18 +19,25 @@ Universal Dependencies (English) datasets. We hypothesize that incorporating cha
 significantly mitigate emission sparsity, yielding higher accuracy on unknown tokens compared to standard uniform \
 smoothing without increasing inference latency during Viterbi decoding.
 
-### File Stucture:
+### File Structure:
 ```
 morphological_hmm_tagger/
 │
 ├── data_loader.py        # Corpus parsing (UD & Brown), vocabulary extraction, & OOV splitting
 ├── hmm_core.py           # Log-space transition/emission matrices & Viterbi decoder
-├── smoothing.py          # Baseline OOV smoothing (Add-α / Laplace, Good-Turing)
+├── smoothing.py          # Add-α and Good-Turing smoothing helpers
 ├── morphological.py      # Suffix extraction & morphological prior calculation
 ├── evaluator.py          # Benchmark runner, accuracy metrics, & latency measurement
 ├── visualizer.py         # Seaborn/Matplotlib plot generation & LaTeX table formatting
+├── __init__.py           # Package exports
 └── demo.ipynb            # Interactive walkthrough, live testing & figure generator
 ```
+
+### Implementation Notes
+- The HMM core is implemented from scratch with explicit count estimation and log-space Viterbi decoding.
+- OOV handling supports uniform fallback and suffix-based morphological priors.
+- Helper libraries are used only for corpus access, plotting, and notebook workflow; the model logic itself stays self-contained.
+- The corpus loader can save and reload precomputed splits as JSON when you want to reuse the same experiment setup.
 
 ### Mathematical Overview
 1. First-Order HMM Parameter Estimation
@@ -75,10 +82,29 @@ nltk.download('universal_tagset')
 Run the full comparative evaluation across models directly from the command line:
 
 ```
-python evaluator.py --dataset brown --oov-split 0.2
+python -m morphological_hmm_tagger.evaluator --dataset brown --test-ratio 0.2 --oov-target-rate 0.1
 ```
 
-4. Demo Notebook Walkthrough
+4. Save a Dataset Split
+If you want to reuse the exact same split later, save the loader output once:
+
+```python
+from morphological_hmm_tagger.data_loader import CorpusDataLoader
+
+loader = CorpusDataLoader(dataset_name="brown", universal_tagset=True)
+train_sents, test_sents, train_vocab = loader.create_oov_split()
+loader.save_oov_split("artifacts/brown_oov_split.json", train_sents, test_sents, train_vocab)
+```
+
+5. Load a Saved Split
+
+```python
+from morphological_hmm_tagger.data_loader import CorpusDataLoader
+
+train_sents, test_sents, train_vocab = CorpusDataLoader.load_oov_split("artifacts/brown_oov_split.json")
+```
+
+6. Demo Notebook Walkthrough
 Launch the interactive demo notebook to execute code step-by- step and inline-render paper artifacts:
 
 ```

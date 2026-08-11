@@ -3,7 +3,10 @@ Corpus parsing, vocabulary extraction, boundary padding, and OOV dataset
 splitting for the Morphological HMM Tagger.
 """
 
+import importlib
+import json
 import random
+from pathlib import Path
 from collections import Counter
 from typing import List, Tuple, Dict, Set, Optional
 import nltk
@@ -24,7 +27,7 @@ class CorpusDataLoader:
     (NLTK Brown Corpus & Universal Dependencies) with custom OOV partitioning.
     """
 
-    def __init__(self, dataset_name = "brown", universal_tagset = True):
+    def __init__(self, dataset_name="brown", universal_tagset=True):
         """
         Initializes the CorpusDataLoader with the specified dataset and tagset 
         preference.
@@ -37,7 +40,7 @@ class CorpusDataLoader:
         self.sentences: List[List[Tuple[str, str]]] = []
 
 
-    def load_corpus(self, filepath = None):
+    def load_corpus(self, filepath=None):
         """
         Loads and standardizes sentences with (word, tag) pairs.
         Adds explicit <BOS> and <EOS> sentence boundary tags.
@@ -75,8 +78,8 @@ class CorpusDataLoader:
                 raise ValueError("A valid file path to a .conllu file must be provided for 'ud'.")
             # Attempt to import the 'conllu' package for parsing .conllu files
             try:
-                import conllu
-            except ImportError:
+                conllu = importlib.import_module("conllu")
+            except ModuleNotFoundError:
                 raise ImportError("Please ensure 'conllu' package is installed: pip install conllu")
 
             # Read and parse the .conllu file, standardizing sentences
@@ -109,7 +112,7 @@ class CorpusDataLoader:
         return self.sentences # Return standardized sentences for potential further processing
 
 
-    def create_oov_split(self, test_ratio = 0.2, oov_target_rate = 0.1, seed = 42, filepath = None):
+    def create_oov_split(self, test_ratio=0.2, oov_target_rate=0.1, seed=42, filepath=None):
         """
         Splits data into train and test sets, artificially ensuring a target 
         Out-of-Vocabulary (OOV) rate in test set by removing low-frequency words 
@@ -192,6 +195,44 @@ class CorpusDataLoader:
             train_sents = mapped_train_sents
 
         # Return the split datasets and the final training vocabulary
+        return train_sents, test_sents, train_vocab
+
+
+    def save_oov_split(self, output_path, train_sents, test_sents, train_vocab):
+        """
+        Save a train/test split and vocabulary to JSON for later reuse.
+        """
+        payload = {
+            "dataset_name": self.dataset_name,
+            "universal_tagset": self.universal_tagset,
+            "train_sents": [[list(token) for token in sent] for sent in train_sents],
+            "test_sents": [[list(token) for token in sent] for sent in test_sents],
+            "train_vocab": sorted(train_vocab),
+        }
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with output_path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        return str(output_path)
+
+
+    @staticmethod
+    def load_oov_split(input_path):
+        """
+        Load a previously saved train/test split and vocabulary from JSON.
+        """
+        input_path = Path(input_path)
+
+        with input_path.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+
+        train_sents = [[tuple(token) for token in sent] for sent in payload["train_sents"]]
+        test_sents = [[tuple(token) for token in sent] for sent in payload["test_sents"]]
+        train_vocab = set(payload["train_vocab"])
+
         return train_sents, test_sents, train_vocab
 
 
