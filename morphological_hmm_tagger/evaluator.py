@@ -1,7 +1,5 @@
 """Model evaluation utilities and a small command-line benchmark runner."""
 
-from __future__ import annotations
-
 import argparse
 import json
 from dataclasses import asdict, dataclass
@@ -84,6 +82,7 @@ def evaluate_predictions(gold_sentences, predicted_tags, train_vocab):
 
 
 def benchmark_configuration(model_name, train_sentences, test_sentences, train_vocab, **tagger_kwargs):
+    print(f"Running benchmark: {model_name}", flush=True)
     tagger = FirstOrderHMMTagger(**tagger_kwargs)
     tagger.fit(train_sentences, train_vocab=train_vocab)
 
@@ -109,13 +108,17 @@ def benchmark_configuration(model_name, train_sentences, test_sentences, train_v
     )
 
 
-def benchmark_all(train_sentences, test_sentences, train_vocab):
+def benchmark_all(train_sentences, test_sentences, train_vocab, selected_models=None):
     configurations = [
-        ("baseline_uniform", {"smoothing": "add_alpha", "alpha": 0.1, "oov_strategy": "uniform"}),
+        ("baseline_uniform", {"smoothing": "add_alpha", "alpha": 1.0, "oov_strategy": "uniform"}),
         ("add_alpha", {"smoothing": "add_alpha", "alpha": 0.1, "oov_strategy": "uniform"}),
         ("good_turing", {"smoothing": "good_turing", "alpha": 0.1, "oov_strategy": "uniform"}),
         ("morphological", {"smoothing": "add_alpha", "alpha": 0.1, "oov_strategy": "morphological"}),
     ]
+
+    if selected_models is not None:
+        selected_models = set(selected_models)
+        configurations = [item for item in configurations if item[0] in selected_models]
 
     results = []
     for model_name, kwargs in configurations:
@@ -134,6 +137,9 @@ def run_from_command_line():
     parser.add_argument("--test-ratio", type=float, default=0.2)
     parser.add_argument("--oov-target-rate", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--max-train-sentences", type=int, default=None, help="Optional cap on train sentences for a faster run.")
+    parser.add_argument("--max-test-sentences", type=int, default=None, help="Optional cap on test sentences for a faster run.")
+    parser.add_argument("--models", nargs="*", default=None, help="Optional list of models to run: baseline_uniform, add_alpha, good_turing, morphological.")
     parser.add_argument("--output-json", default=None)
     parser.add_argument("--output-csv", default=None)
     args = parser.parse_args()
@@ -146,8 +152,15 @@ def run_from_command_line():
         filepath = args.filepath,
     )
 
+    if args.max_train_sentences is not None:
+        train_sentences = train_sentences[: args.max_train_sentences]
+    if args.max_test_sentences is not None:
+        test_sentences = test_sentences[: args.max_test_sentences]
+
     stats = get_vocabulary_stats(train_sentences, test_sentences, train_vocab)
-    results = benchmark_all(train_sentences, test_sentences, train_vocab)
+
+    selected_models = set(args.models) if args.models else None
+    results = benchmark_all(train_sentences, test_sentences, train_vocab, selected_models=selected_models)
     results_frame = results_to_frame(results)
 
     print("Corpus statistics:")

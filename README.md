@@ -50,9 +50,9 @@ and calculate suffix conditional distributions:
 
 $$P(t_i \mid \text{suffix}_L) = \frac{C(t_i, \text{suffix}_L)}{C(\text{suffix}_L)}$$
 
-Using Bayes' Rule, the prior emission probability substituted into the Viterbi lattice is:
+The implementation then interpolates suffix priors with the smoothed unknown-token emission:
 
-$$P(\text{suffix}_L \mid t_i) \propto \frac{P(t_i \mid \text{suffix}_L) \cdot P(\text{suffix}_L)}{P(t_i)}$$
+$$P(w_{\text{OOV}} \mid t_i) = \lambda \, P(t_i \mid \text{suffix}(w)) + (1-\lambda) \, P(\text{<UNK>} \mid t_i),\quad \lambda=0.75$$
 
 3. Log-Space Viterbi Lattice Decoding
 - To prevent numerical underflow over long sequences, exact decoding operates in log-probability space: \

@@ -8,7 +8,7 @@ import json
 import random
 from pathlib import Path
 from collections import Counter
-from typing import List, Tuple, Dict, Set, Optional
+from typing import List, Tuple
 import nltk
 
 
