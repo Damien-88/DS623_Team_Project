@@ -110,9 +110,9 @@ def benchmark_configuration(model_name, train_sentences, test_sentences, train_v
 
 def benchmark_all(train_sentences, test_sentences, train_vocab, selected_models=None):
     configurations = [
-        ("baseline_uniform", {"smoothing": "add_alpha", "alpha": 1.0, "oov_strategy": "uniform"}),
-        ("add_alpha", {"smoothing": "add_alpha", "alpha": 0.1, "oov_strategy": "uniform"}),
-        ("good_turing", {"smoothing": "good_turing", "alpha": 0.1, "oov_strategy": "uniform"}),
+        ("baseline_uniform", {"smoothing": "mle", "oov_strategy": "uniform"}),
+        ("add_alpha", {"smoothing": "add_alpha", "alpha": 0.1, "oov_strategy": "smoothed"}),
+        ("good_turing", {"smoothing": "good_turing", "oov_strategy": "smoothed"}),
         ("morphological", {"smoothing": "add_alpha", "alpha": 0.1, "oov_strategy": "morphological"}),
     ]
 

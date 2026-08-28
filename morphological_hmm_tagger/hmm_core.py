@@ -16,6 +16,9 @@ except ImportError:
 
 NEG_INF = float("-inf")
 
+# Fixed for every OOV-strategy condition so the transition model never varies (see paper's Experimental Controls).
+TRANSITION_ALPHA = 0.1
+
 
 def safe_log(value):
     return log(value) if value > 0 else NEG_INF
@@ -40,7 +43,7 @@ class FirstOrderHMMTagger:
 
     smoothing: str = "add_alpha"
     alpha: float = 0.1
-    oov_strategy: str = "uniform"
+    oov_strategy: str = "smoothed"
     suffix_min_length: int = 1
     suffix_max_length: int = 4
     suffix_min_support: int = 2
@@ -110,22 +113,19 @@ class FirstOrderHMMTagger:
         return self
 
     def transition_probability(self, previous_tag, next_tag):
+        # Always add-alpha with a fixed constant: transitions must not vary across OOV-strategy conditions.
         support_size = len(self.state_tags) + 1
         count = self.transition_counts.get((previous_tag, next_tag), 0)
         total = self.transition_totals.get(previous_tag, 0)
-
-        if self.smoothing == "good_turing":
-            distribution = Counter({
-                next_state_tag: self.transition_counts.get((previous_tag, next_state_tag), 0)
-                for next_state_tag in self.state_tags + [EOS_TAG]
-            })
-            return good_turing_probability(count, distribution, support_size)
-
-        return add_alpha_probability(count, total, support_size, self.alpha)
+        return add_alpha_probability(count, total, support_size, TRANSITION_ALPHA)
 
     def known_emission_probability(self, tag, word):
         count = self.emission_counts[tag].get(word, 0)
         total = self.tag_totals.get(tag, 0)
+
+        if self.smoothing == "mle":
+            return count / total if total > 0 else 0.0
+
         support_size = max(len(self.vocabulary) - 2, 1)
 
         if self.smoothing == "good_turing":
@@ -136,6 +136,10 @@ class FirstOrderHMMTagger:
         return add_alpha_probability(count, total, support_size, self.alpha)
 
     def oov_emission_probability(self, tag, word):
+        if self.oov_strategy == "uniform":
+            # Literal 1/|tags| fallback: every candidate tag receives the same nonzero probability.
+            return 1.0 / len(self.state_tags) if self.state_tags else 0.0
+
         base_unknown_probability = self.known_emission_probability(tag, UNK_TOKEN)
         if self.oov_strategy != "morphological" or self.morphology_model is None:
             return base_unknown_probability

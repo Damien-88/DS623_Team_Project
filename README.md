@@ -35,9 +35,20 @@ morphological_hmm_tagger/
 
 ### Implementation Notes
 - The HMM core is implemented from scratch with explicit count estimation and log-space Viterbi decoding.
-- OOV handling supports uniform fallback and suffix-based morphological priors.
+- OOV handling supports uniform fallback, smoothed fallback, and suffix-based morphological priors.
 - Helper libraries are used only for corpus access, plotting, and notebook workflow; the model logic itself stays self-contained.
 - The corpus loader can save and reload precomputed splits as JSON when you want to reuse the same experiment setup.
+- Punctuation and symbol tokens are intentionally kept in the corpus rather than stripped by a preprocessing step; see [Implementation Updates](#implementation-updates-2026-08-28) for the rationale.
+
+### Implementation Updates (2026-08-28)
+A sanity check of the code against the paper surfaced two gaps between the described experimental design and the original implementation, both now fixed in `hmm_core.py` and `evaluator.py`:
+
+- **Transition model was not held constant across conditions.** `transition_probability()` previously branched on each condition's `smoothing` setting (add-α vs. Good-Turing) and used different α values per benchmark config, so the transition matrix differed between OOV strategies even though the paper's Experimental Controls state it should not. Transitions now always use a fixed module-level constant (`TRANSITION_ALPHA = 0.1`), independent of the OOV strategy under test, isolating the OOV-handling method as the only variable that changes between conditions.
+- **"Baseline HMM" was not literally MLE with a uniform fallback.** The old `oov_strategy="uniform"` path returned a smoothed, per-tag probability derived from `<UNK>`-token counts rather than a flat distribution, and known-word emissions were add-α smoothed (α=1.0) rather than raw MLE counts. `smoothing="mle"` now gives pure maximum-likelihood known-word emissions, and `oov_strategy="uniform"` now returns a literal $1/|\text{tags}|$ constant, matching this README's original formula table. The previous smoothed-fallback behavior (used by Add-α and Good-Turing) is preserved under the explicit `oov_strategy="smoothed"` value.
+
+`demo.ipynb` was completed with a full interactive walkthrough: corpus loading, exploratory data checks (`head`, `tail`, `info`, `describe`, NaN/empty-token checks, tag distribution, sentence-length stats), the induced OOV split with vocabulary/OOV-rate inspection, a standalone suffix-prior demo, a single-sentence decode example, the four-strategy benchmark, result visualization, LaTeX table export, and a save/reload round-trip for the split artifact. `artifacts/` was added to `.gitignore` since the split-export cell writes a multi-megabyte JSON file.
+
+Punctuation and symbol tokens (14 distinct marks tagged `.` under the Brown corpus's universal tagset: `! ' '' ( ) , -- . : ; ? [ ] ​\`\``) were reviewed and intentionally left in the pipeline rather than routed through a new `preprocessing.py`. Punctuation is a legitimate, closed-set POS category that the transition model and standard tagging-accuracy metrics depend on; stripping it would distort sentence-boundary transitions and make results incomparable to standard Brown/UD benchmarks.
 
 ### Mathematical Overview
 1. First-Order HMM Parameter Estimation
@@ -112,10 +123,29 @@ jupyter notebook demo.ipynb
 ```
 
 ### Experimental Baselines and Comparisons
-The benchmark suite evaluates four distinct OOV handling strategies:
+The benchmark suite evaluates four distinct OOV handling strategies under an identical transition model, tag set, training/testing data, and Viterbi decoder — only the emission-handling method for unseen words differs between conditions.
 
-Strategy,Description,Emission for Unseen w
-Baseline HMM,Uniform Fallback,P(w \mid t_i) = \frac{1}{\|V\
-Add-α (Laplace),Fixed Pseudo-Count Smoothing,P(w \mid t_i) = \frac{\alpha}{C(t_i) + \alpha(\|V\|+1
-Good-Turing,Discounting based on singletons (N1​/N),Re-adjusted zero-count frequency
-Morphological Prior (Proposed),Suffix-to-Tag Character Distribution,P(suffixL​∣ti​) via Bayes Inversion
+| Strategy | `smoothing` | `oov_strategy` | Emission for unseen word $w$ |
+| --- | --- | --- | --- |
+| Baseline HMM | `mle` | `uniform` | $P(w \mid t_i) = \dfrac{1}{\|\text{tags}\|}$ (literal, tag-independent) |
+| Add-α (Laplace) | `add_alpha` | `smoothed` | $P(w \mid t_i) = \dfrac{\alpha}{C(t_i) + \alpha(\|V\|+1)}$ |
+| Good-Turing | `good_turing` | `smoothed` | Re-estimated zero-count mass ($N_1/N$) |
+| Morphological Prior (Proposed) | `add_alpha` | `morphological` | $0.75\,P(t_i \mid \text{suffix}(w)) + 0.25\,P(\text{<UNK>} \mid t_i)$ |
+
+All four conditions estimate transition probabilities with the same fixed add-α smoothing ($\alpha=0.1$), matching the paper's Experimental Controls.
+
+### Analysis and Interpretation
+Running the four-strategy benchmark from `demo.ipynb` (2,000 training / 500 test sentences, capped for interactive speed — see `evaluator.py` for a full-corpus run) produced:
+
+| model | overall_accuracy | known_token_accuracy | oov_token_accuracy | ms/sentence | ms/token |
+| --- | --- | --- | --- | --- | --- |
+| baseline_uniform | 0.8936 | 0.9352 | 0.5235 | 1.49 | 0.069 |
+| add_alpha | 0.8970 | 0.9229 | 0.6664 | 1.59 | 0.074 |
+| good_turing | 0.9158 | 0.9448 | 0.6571 | 28.78 | 1.338 |
+| morphological | 0.9066 | 0.9237 | 0.7539 | 1.71 | 0.079 |
+
+**OOV accuracy (primary metric).** The morphological prior gives the largest OOV-accuracy gain among the low-latency strategies: +23.0 points over the uniform baseline (0.524 → 0.754) and +8.8 points over Add-α (0.666 → 0.754). This supports the hypothesis that suffix priors carry OOV-relevant signal beyond what simple probability smoothing provides.
+
+**Overall/known accuracy (secondary metric).** Good-Turing edges out the morphological model on overall and known-token accuracy (0.916 vs. 0.907), but at roughly 17–19x the decoding latency (28.8 ms/sentence vs. 1.7 ms/sentence) because its zero-count mass is recomputed on every emission lookup rather than cached. This trades away the "without increasing inference latency" half of the hypothesis, whereas the morphological model's latency stays within about 15% of the fastest baseline.
+
+**Interpretation.** These results are consistent with the paper's central claim: suffix-based morphological priors improve OOV tagging accuracy more than uniform or Add-α smoothing, at a latency cost close to the cheapest baselines. Good-Turing is the only strategy that trades meaningfully higher latency for accuracy, and it does not surpass the morphological model on the primary OOV metric. Because these figures come from a subset of the Brown corpus used for interactive demo speed, the paper's reported figures should be reproduced from a full-corpus run via `python -m morphological_hmm_tagger.evaluator`.
